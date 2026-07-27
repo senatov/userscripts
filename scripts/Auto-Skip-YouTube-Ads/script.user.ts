@@ -1,250 +1,201 @@
 // ==UserScript==
-// @name               Auto Skip YouTube Ads
-// @name:ar            تخطي إعلانات YouTube تلقائيًا
-// @name:es            Saltar Automáticamente Anuncios De YouTube
-// @name:fr            Ignorer Automatiquement Les Publicités YouTube
-// @name:hi            YouTube विज्ञापन स्वचालित रूप से छोड़ें
-// @name:id            Lewati Otomatis Iklan YouTube
-// @name:ja            YouTube 広告を自動スキップ
-// @name:ko            YouTube 광고 자동 건너뛰기
-// @name:nl            YouTube-Advertenties Automatisch Overslaan
-// @name:pt-BR         Pular Automaticamente Anúncios Do YouTube
-// @name:ru            Автоматический Пропуск Рекламы На YouTube
-// @name:vi            Tự Động Bỏ Qua Quảng Cáo YouTube
-// @name:zh-CN         自动跳过 YouTube 广告
-// @name:zh-TW         自動跳過 YouTube 廣告
-// @namespace          https://github.com/tientq64/userscripts
-// @version            7.3.0
-// @description        Automatically skip YouTube ads instantly. Undetected by YouTube ad blocker warnings.
-// @description:ar     تخطي إعلانات YouTube تلقائيًا على الفور. دون أن يتم اكتشاف ذلك من خلال تحذيرات أداة حظر الإعلانات في YouTube.
-// @description:es     Omite automáticamente los anuncios de YouTube al instante. Sin que te detecten las advertencias del bloqueador de anuncios de YouTube.
-// @description:fr     Ignorez automatiquement et instantanément les publicités YouTube. Non détecté par les avertissements du bloqueur de publicités YouTube.
-// @description:hi     YouTube विज्ञापनों को स्वचालित रूप से तुरंत छोड़ दें। YouTube विज्ञापन अवरोधक चेतावनियों द्वारा पता नहीं लगाया गया।
-// @description:id     Lewati iklan YouTube secara otomatis secara instan. Tidak terdeteksi oleh peringatan pemblokir iklan YouTube.
-// @description:ja     YouTube 広告を即座に自動的にスキップします。YouTube 広告ブロッカーの警告には検出されません。
-// @description:ko     YouTube 광고를 즉시 자동으로 건너뜁니다. YouTube 광고 차단 경고에 감지되지 않습니다.
-// @description:nl     Sla YouTube-advertenties direct automatisch over. Ongemerkt door YouTube-adblockerwaarschuwingen.
-// @description:pt-BR  Pule anúncios do YouTube instantaneamente. Não detectado pelos avisos do bloqueador de anúncios do YouTube.
-// @description:ru     Автоматически пропускать рекламу YouTube мгновенно. Не обнаруживается предупреждениями блокировщиков рекламы YouTube.
-// @description:vi     Tự động bỏ qua quảng cáo YouTube ngay lập tức. Không bị phát hiện bởi cảnh báo trình chặn quảng cáo của YouTube.
-// @description:zh-CN  立即自动跳过 YouTube 广告。不会被 YouTube 广告拦截器警告检测到。
-// @description:zh-TW  立即自動跳過 YouTube 廣告。 YouTube 廣告攔截器警告未被偵測到。
-// @author             tientq64
-// @icon               https://cdn-icons-png.flaticon.com/64/2504/2504965.png
-// @match              https://www.youtube.com/*
-// @match              https://m.youtube.com/*
-// @match              https://music.youtube.com/*
-// @exclude            https://studio.youtube.com/*
-// @grant              none
-// @license            MIT
-// @compatible         firefox
-// @compatible         chrome
-// @compatible         opera
-// @compatible         safari
-// @compatible         edge
+// @name         Auto Skip YouTube Ads (Improved)
+// @namespace    https://github.com/tientq64/userscripts
+// @version      8.3.0
+// @description  Lets video ads play briefly, then uses YouTube's native skip button.
+// @author       tientq64
+// @match        https://www.youtube.com/*
+// @match        https://m.youtube.com/*
+// @match        https://music.youtube.com/*
+// @exclude      https://studio.youtube.com/*
+// @grant        none
+// @license      MIT
+// @run-at       document-start
 // @noframes
 // ==/UserScript==
 
-function skipAd(): void {
-	if (checkIsYouTubeShorts()) return
+;(() => {
+        const runtimeMarker = 'data-auto-skip-youtube-ads-running'
+        const root = document.documentElement
+        if (root.hasAttribute(runtimeMarker)) {
+                console.debug('[AutoSkipAds]', 'Ignored duplicate Safari injection')
+                return
+        }
+        root.setAttribute(runtimeMarker, '8.3.0')
 
-	// This element appears when a video ad appears.
-	const adShowing = document.querySelector<HTMLElement>('.ad-showing')
+        interface AdState {
+                video: HTMLVideoElement
+                source: string
+                lastVideoTime: number
+                playedTimeMs: number
+                skipClicked: boolean
+        }
 
-	// Timed pie countdown ad.
-	const pieCountdown = document.querySelector<HTMLElement>(
-		'.ytp-ad-timed-pie-countdown-container'
-	)
+        const DEBUG = true
+        const MIN_AD_PLAY_TIME_MS = 2000
+        const FALLBACK_CHECK_INTERVAL_MS = 2000
+        const adMarkers: string[] = [
+                '.ad-showing',
+                '.ytp-ad-player-overlay',
+                '.ytp-ad-player-overlay-layout',
+                '.ytp-ad-timed-pie-countdown-container',
+                '.ytp-ad-survey-questions',
+                '.ytp-ad-text-overlay'
+        ]
+        const skipButtonSelectors: string[] = [
+                '.ytp-ad-skip-button',
+                '.ytp-ad-skip-button-modern',
+                '.ytp-skip-ad-button',
+                'button.ytp-skip-ad-button',
+                'button.ytp-ad-skip-button-slot',
+                '.ytp-ad-skip-button-container button',
+                '[id^="skip-button"] button'
+        ]
 
-	// Survey questions in video player.
-	const surveyQuestions = document.querySelector<HTMLElement>('.ytp-ad-survey-questions')
+        let scheduled = false
+        let adState: AdState | null = null
+        let observedPlayer: Element | null = null
 
-	if (adShowing === null && pieCountdown === null && surveyQuestions === null) return
+        function log(message: string, details: Record<string, unknown> = {}): void {
+                if (DEBUG) console.debug('[AutoSkipAds]', message, details)
+        }
 
-	const moviePlayerEl = document.querySelector<YouTubeMoviePlayerElement>('#movie_player')
-	let playerEl: YtdPlayerElement | YouTubeMoviePlayerElement | null
-	let player: YouTubePlayer | YouTubeMoviePlayerElement | null
+        function isYouTubeShorts(): boolean {
+                return location.pathname.startsWith('/shorts/')
+        }
 
-	if (isYouTubeMobile || isYouTubeMusic) {
-		playerEl = moviePlayerEl
-		player = playerEl
-	} else {
-		playerEl = document.querySelector<YtdPlayerElement>('#ytd-player')
-		player = playerEl && playerEl.getPlayer()
-	}
+        function hasVideoAd(): boolean {
+                return adMarkers.some((selector) => document.querySelector(selector) !== null)
+        }
 
-	if (playerEl === null || player === null) {
-		console.log({
-			message: 'Player not found',
-			timeStamp: getCurrentTimeString()
-		})
-		return
-	}
+        function isElementVisible(element: HTMLElement): boolean {
+                const style = getComputedStyle(element)
+                return (
+                    element.isConnected &&
+                    element.getClientRects().length > 0 &&
+                    style.display !== 'none' &&
+                    style.visibility !== 'hidden'
+                )
+        }
 
-	// ad.classList.remove('ad-showing')
+        function clickSkipButton(): boolean {
+                const button = document.querySelector<HTMLElement>(skipButtonSelectors.join(','))
+                if (
+                    button === null ||
+                    !isElementVisible(button) ||
+                    button.getAttribute('aria-disabled') === 'true' ||
+                    (button instanceof HTMLButtonElement && button.disabled)
+                ) {
+                        return false
+                }
 
-	let adVideo: HTMLVideoElement | null = null
+                button.click()
+                log('Clicked the skip button')
+                return true
+        }
 
-	if (pieCountdown === null && surveyQuestions === null) {
-		adVideo = document.querySelector<HTMLVideoElement>(
-			'#ytd-player video.html5-main-video, #song-video video.html5-main-video'
-		)
+        function resetAdState(): void {
+                adState = null
+        }
 
-		console.table({
-			message: 'Ad video',
-			video: adVideo !== null,
-			src: adVideo?.src,
-			paused: adVideo?.paused,
-			currentTime: adVideo?.currentTime,
-			duration: adVideo?.duration,
-			timeStamp: getCurrentTimeString()
-		})
+        function playAndSkipAd(): void {
+                if (isYouTubeShorts() || !hasVideoAd()) {
+                        resetAdState()
+                        return
+                }
 
-		if (adVideo !== null) {
-			adVideo.muted = true
-		}
-		if (adVideo === null || !adVideo.src || adVideo.paused || isNaN(adVideo.duration)) {
-			return
-		}
+                const video = document.querySelector<HTMLVideoElement>('video.html5-main-video')
+                if (video === null) {
+                        resetAdState()
+                        return
+                }
 
-		console.log({
-			message: 'Ad video has finished loading',
-			timeStamp: getCurrentTimeString()
-		})
-	}
+                const source = video.currentSrc || video.src
+                const currentTime = Number.isFinite(video.currentTime) ? video.currentTime : 0
+                const isNewAd =
+                    adState === null ||
+                    adState.video !== video ||
+                    adState.source !== source ||
+                    currentTime + 0.25 < adState.lastVideoTime
 
-	if (isYouTubeMusic && adVideo !== null) {
-		adVideo.currentTime = adVideo.duration
+                if (isNewAd) {
+                        adState = {
+                                video,
+                                source,
+                                lastVideoTime: currentTime,
+                                playedTimeMs: 0,
+                                skipClicked: false
+                        }
+                        log('Ad playback detected')
+                }
 
-		console.table({
-			message: 'Ad skipped',
-			timeStamp: getCurrentTimeString(),
-			adShowing: adShowing !== null,
-			pieCountdown: pieCountdown !== null,
-			surveyQuestions: surveyQuestions !== null
-		})
-	} else {
-		const videoData: YouTubeVideoData = player.getVideoData()
-		const videoId: string = videoData.video_id
-		const start: number = Math.floor(player.getCurrentTime())
+                if (adState === null) return
+                const playbackDelta = currentTime - adState.lastVideoTime
+                if (playbackDelta > 0) adState.playedTimeMs += playbackDelta * 1000
+                adState.lastVideoTime = currentTime
 
-		if (moviePlayerEl !== null && moviePlayerEl.isSubtitlesOn()) {
-			window.setTimeout(moviePlayerEl.toggleSubtitlesOn, 1000)
-		}
+                const playedLongEnough = adState.playedTimeMs >= MIN_AD_PLAY_TIME_MS
+                if (playedLongEnough && !adState.skipClicked && clickSkipButton()) {
+                        adState.skipClicked = true
+                }
+        }
 
-		if ('loadVideoWithPlayerVars' in playerEl) {
-			playerEl.loadVideoWithPlayerVars({ videoId, start })
-		} else {
-			playerEl.loadVideoByPlayerVars({ videoId, start })
-		}
+        function run(): void {
+                scheduled = false
+                playAndSkipAd()
+        }
 
-		console.table({
-			message: 'Ad skipped',
-			videoId,
-			start,
-			title: videoData.title,
-			timeStamp: getCurrentTimeString(),
-			adShowing: adShowing !== null,
-			pieCountdown: pieCountdown !== null,
-			surveyQuestions: surveyQuestions !== null
-		})
-	}
-}
+        function scheduleRun(): void {
+                if (scheduled) return
 
-function checkIsYouTubeShorts(): boolean {
-	return location.pathname.startsWith('/shorts/')
-}
+                scheduled = true
+                requestAnimationFrame(run)
+        }
 
-function getCurrentTimeString(): string {
-	return new Date().toTimeString().split(' ', 1)[0]
-}
+        function observePlayer(): void {
+                const player = document.querySelector('#movie_player')
+                if (player === null || player === observedPlayer) return
 
-function addCss(): void {
-	const adsSelectors: string[] = [
-		// Ad banner in the upper right corner, above the video playlist.
-		'#player-ads',
-		'#panels > ytd-engagement-panel-section-list-renderer[target-id="engagement-panel-ads"]',
+                observer.disconnect()
+                observer.observe(player, {
+                        attributes: true,
+                        attributeFilter: ['class', 'hidden', 'aria-disabled'],
+                        childList: true,
+                        subtree: true
+                })
+                observedPlayer = player
+                log('Observing the YouTube player')
+        }
 
-		// Masthead ad on home page.
-		'#masthead-ad',
+        const observer = new MutationObserver(() => {
+                observePlayer()
+                scheduleRun()
+        })
+        observer.observe(document.documentElement, { childList: true, subtree: true })
 
-		// Sponsored ad video items on home page.
-		// 'ytd-ad-slot-renderer',
-
-		// '.ytp-suggested-action',
-		'.yt-mealbar-promo-renderer',
-
-		// Featured product ad banner at the bottom left of the video.
-		'.ytp-featured-product',
-
-		// Products shelf ad banner below the video description.
-		'ytd-merch-shelf-renderer',
-
-		// YouTube Music Premium trial promotion dialog, bottom left corner.
-		'ytmusic-mealbar-promo-renderer',
-
-		// YouTube Music Premium trial promotion banner on home page.
-		'ytmusic-statement-banner-renderer'
-	]
-	const adsSelector: string = adsSelectors.join(',')
-	const css: string = `${adsSelector} { display: none !important; }`
-	const style = document.createElement('style')
-	style.textContent = css
-	document.head.appendChild(style)
-}
-
-/**
- * Remove ad elements using JavaScript because these selectors require the use of the CSS
- * `:has` selector which is not supported in older browser versions.
- */
-function removeAdElements(): void {
-	const adSelectors: [string, string][] = [
-		// Sponsored ad video items on home page.
-		// ['ytd-rich-item-renderer', '.ytd-ad-slot-renderer'],
-
-		// ['ytd-rich-section-renderer', '.ytd-statement-banner-renderer'],
-
-		// Ad videos on YouTube Shorts.
-		['ytd-reel-video-renderer', '.ytd-ad-slot-renderer']
-
-		// Ad blocker warning dialog.
-		// ['tp-yt-paper-dialog', '#feedback.ytd-enforcement-message-view-model'],
-
-		// Survey dialog on home page, located at bottom right.
-		// ['tp-yt-paper-dialog', ':scope > ytd-checkbox-survey-renderer'],
-
-		// Survey to rate suggested content, located at bottom right.
-		// ['tp-yt-paper-dialog', ':scope > ytd-single-option-survey-renderer']
-	]
-	for (const adSelector of adSelectors) {
-		const adEl = document.querySelector<HTMLElement>(adSelector[0])
-		if (adEl === null) continue
-		const neededEl = adEl.querySelector<HTMLElement>(adSelector[1])
-		if (neededEl === null) continue
-		adEl.remove()
-	}
-}
-
-const isYouTubeMobile: boolean = location.hostname === 'm.youtube.com'
-const isYouTubeDesktop: boolean = !isYouTubeMobile
-
-const isYouTubeMusic: boolean = location.hostname === 'music.youtube.com'
-const isYouTubeVideo: boolean = !isYouTubeMusic
-
-addCss()
-
-if (isYouTubeVideo) {
-	window.setInterval(removeAdElements, 1000)
-	removeAdElements()
-}
-
-window.setInterval(skipAd, 500)
-skipAd()
-
-// const observer = new MutationObserver(skipAd)
-// observer.observe(document.body, {
-// 	attributes: true,
-// 	attributeFilter: ['class'],
-// 	childList: true,
-// 	subtree: true
-// })
+        document.addEventListener('timeupdate', scheduleRun, true)
+        document.addEventListener(
+            'yt-navigate-start',
+            () => {
+                    resetAdState()
+                    observedPlayer = null
+            },
+            true
+        )
+        document.addEventListener(
+            'yt-navigate-finish',
+            () => {
+                    observePlayer()
+                    scheduleRun()
+            },
+            true
+        )
+        window.setInterval(run, FALLBACK_CHECK_INTERVAL_MS)
+        log('Started', {
+                version: root.getAttribute(runtimeMarker),
+                host: location.hostname,
+                minAdPlayTimeMs: MIN_AD_PLAY_TIME_MS
+        })
+        observePlayer()
+        scheduleRun()
+})()
