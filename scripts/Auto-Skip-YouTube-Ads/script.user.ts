@@ -12,175 +12,190 @@
 // @license      MIT
 // @run-at       document-start
 // @noframes
-// @homepage     https://github.com/tientq64/userscripts/tree/main/scripts/Auto-Skip-YouTube-Ads
 // ==/UserScript==
 
-interface AdState {
-	video: HTMLVideoElement
-	source: string
-	lastVideoTime: number
-	playedTimeMs: number
-	skipClicked: boolean
-}
+;(() => {
+        const runtimeMarker = 'data-auto-skip-youtube-ads-running'
+        const root = document.documentElement
+        if (root.hasAttribute(runtimeMarker)) {
+                console.debug('[AutoSkipAds]', 'Ignored duplicate Safari injection')
+                return
+        }
+        root.setAttribute(runtimeMarker, '8.3.0')
 
-const DEBUG = false
-const MIN_AD_PLAY_TIME_MS = 3000
-const FALLBACK_CHECK_INTERVAL_MS = 3000
-const adMarkers: string[] = [
-	'.ad-showing',
-	'.ytp-ad-player-overlay',
-	'.ytp-ad-player-overlay-layout',
-	'.ytp-ad-timed-pie-countdown-container',
-	'.ytp-ad-survey-questions',
-	'.ytp-ad-text-overlay'
-]
-const skipButtonSelectors: string[] = [
-	'.ytp-ad-skip-button',
-	'.ytp-ad-skip-button-modern',
-	'.ytp-skip-ad-button',
-	'button.ytp-skip-ad-button',
-	'button.ytp-ad-skip-button-slot',
-	'.ytp-ad-skip-button-container button',
-	'[id^="skip-button"] button'
-]
+        interface AdState {
+                video: HTMLVideoElement
+                source: string
+                lastVideoTime: number
+                playedTimeMs: number
+                skipClicked: boolean
+        }
 
-let scheduled = false
-let adState: AdState | null = null
-let observedPlayer: Element | null = null
+        const DEBUG = true
+        const MIN_AD_PLAY_TIME_MS = 2000
+        const FALLBACK_CHECK_INTERVAL_MS = 2000
+        const adMarkers: string[] = [
+                '.ad-showing',
+                '.ytp-ad-player-overlay',
+                '.ytp-ad-player-overlay-layout',
+                '.ytp-ad-timed-pie-countdown-container',
+                '.ytp-ad-survey-questions',
+                '.ytp-ad-text-overlay'
+        ]
+        const skipButtonSelectors: string[] = [
+                '.ytp-ad-skip-button',
+                '.ytp-ad-skip-button-modern',
+                '.ytp-skip-ad-button',
+                'button.ytp-skip-ad-button',
+                'button.ytp-ad-skip-button-slot',
+                '.ytp-ad-skip-button-container button',
+                '[id^="skip-button"] button'
+        ]
 
-function log(message: string, details: Record<string, unknown> = {}): void {
-	if (DEBUG) console.debug('[AutoSkipAds]', message, details)
-}
+        let scheduled = false
+        let adState: AdState | null = null
+        let observedPlayer: Element | null = null
 
-function isYouTubeShorts(): boolean {
-	return location.pathname.startsWith('/shorts/')
-}
+        function log(message: string, details: Record<string, unknown> = {}): void {
+                if (DEBUG) console.debug('[AutoSkipAds]', message, details)
+        }
 
-function hasVideoAd(): boolean {
-	return adMarkers.some(selector => document.querySelector(selector) !== null)
-}
+        function isYouTubeShorts(): boolean {
+                return location.pathname.startsWith('/shorts/')
+        }
 
-function isElementVisible(element: HTMLElement): boolean {
-	const style = getComputedStyle(element)
-	return (
-		element.isConnected &&
-		element.getClientRects().length > 0 &&
-		style.display !== 'none' &&
-		style.visibility !== 'hidden'
-	)
-}
+        function hasVideoAd(): boolean {
+                return adMarkers.some((selector) => document.querySelector(selector) !== null)
+        }
 
-function clickSkipButton(): boolean {
-	const button = document.querySelector<HTMLElement>(skipButtonSelectors.join(','))
-	if (
-		button === null ||
-		!isElementVisible(button) ||
-		button.getAttribute('aria-disabled') === 'true' ||
-		(button instanceof HTMLButtonElement && button.disabled)
-	) {
-		return false
-	}
+        function isElementVisible(element: HTMLElement): boolean {
+                const style = getComputedStyle(element)
+                return (
+                    element.isConnected &&
+                    element.getClientRects().length > 0 &&
+                    style.display !== 'none' &&
+                    style.visibility !== 'hidden'
+                )
+        }
 
-	button.click()
-	log('Clicked the skip button')
-	return true
-}
+        function clickSkipButton(): boolean {
+                const button = document.querySelector<HTMLElement>(skipButtonSelectors.join(','))
+                if (
+                    button === null ||
+                    !isElementVisible(button) ||
+                    button.getAttribute('aria-disabled') === 'true' ||
+                    (button instanceof HTMLButtonElement && button.disabled)
+                ) {
+                        return false
+                }
 
-function resetAdState(): void {
-	adState = null
-}
+                button.click()
+                log('Clicked the skip button')
+                return true
+        }
 
-function playAndSkipAd(): void {
-	if (isYouTubeShorts() || !hasVideoAd()) {
-		resetAdState()
-		return
-	}
+        function resetAdState(): void {
+                adState = null
+        }
 
-	const video = document.querySelector<HTMLVideoElement>('video.html5-main-video')
-	if (video === null) {
-		resetAdState()
-		return
-	}
+        function playAndSkipAd(): void {
+                if (isYouTubeShorts() || !hasVideoAd()) {
+                        resetAdState()
+                        return
+                }
 
-	const source = video.currentSrc || video.src
-	const currentTime = Number.isFinite(video.currentTime) ? video.currentTime : 0
-	const isNewAd =
-		adState === null ||
-		adState.video !== video ||
-		adState.source !== source ||
-		currentTime + 0.25 < adState.lastVideoTime
+                const video = document.querySelector<HTMLVideoElement>('video.html5-main-video')
+                if (video === null) {
+                        resetAdState()
+                        return
+                }
 
-	if (isNewAd) {
-		adState = {
-			video,
-			source,
-			lastVideoTime: currentTime,
-			playedTimeMs: 0,
-			skipClicked: false
-		}
-		log('Ad playback detected')
-	}
+                const source = video.currentSrc || video.src
+                const currentTime = Number.isFinite(video.currentTime) ? video.currentTime : 0
+                const isNewAd =
+                    adState === null ||
+                    adState.video !== video ||
+                    adState.source !== source ||
+                    currentTime + 0.25 < adState.lastVideoTime
 
-	if (adState === null) return
-	const playbackDelta = currentTime - adState.lastVideoTime
-	if (playbackDelta > 0) adState.playedTimeMs += playbackDelta * 1000
-	adState.lastVideoTime = currentTime
+                if (isNewAd) {
+                        adState = {
+                                video,
+                                source,
+                                lastVideoTime: currentTime,
+                                playedTimeMs: 0,
+                                skipClicked: false
+                        }
+                        log('Ad playback detected')
+                }
 
-	const playedLongEnough = adState.playedTimeMs >= MIN_AD_PLAY_TIME_MS
-	if (playedLongEnough && !adState.skipClicked && clickSkipButton()) {
-		adState.skipClicked = true
-	}
-}
+                if (adState === null) return
+                const playbackDelta = currentTime - adState.lastVideoTime
+                if (playbackDelta > 0) adState.playedTimeMs += playbackDelta * 1000
+                adState.lastVideoTime = currentTime
 
-function run(): void {
-	scheduled = false
-	playAndSkipAd()
-}
+                const playedLongEnough = adState.playedTimeMs >= MIN_AD_PLAY_TIME_MS
+                if (playedLongEnough && !adState.skipClicked && clickSkipButton()) {
+                        adState.skipClicked = true
+                }
+        }
 
-function scheduleRun(): void {
-	if (scheduled) return
+        function run(): void {
+                scheduled = false
+                playAndSkipAd()
+        }
 
-	scheduled = true
-	requestAnimationFrame(run)
-}
+        function scheduleRun(): void {
+                if (scheduled) return
 
-function observePlayer(): void {
-	const player = document.querySelector('#movie_player')
-	if (player === null || player === observedPlayer) return
+                scheduled = true
+                requestAnimationFrame(run)
+        }
 
-	observer.disconnect()
-	observer.observe(player, {
-		attributes: true,
-		attributeFilter: ['class', 'hidden', 'aria-disabled'],
-		childList: true,
-		subtree: true
-	})
-	observedPlayer = player
-	log('Observing the YouTube player')
-}
+        function observePlayer(): void {
+                const player = document.querySelector('#movie_player')
+                if (player === null || player === observedPlayer) return
 
-const observer = new MutationObserver(() => {
-	observePlayer()
-	scheduleRun()
-})
-observer.observe(document.documentElement, { childList: true, subtree: true })
+                observer.disconnect()
+                observer.observe(player, {
+                        attributes: true,
+                        attributeFilter: ['class', 'hidden', 'aria-disabled'],
+                        childList: true,
+                        subtree: true
+                })
+                observedPlayer = player
+                log('Observing the YouTube player')
+        }
 
-document.addEventListener(
-	'yt-navigate-start',
-	() => {
-		resetAdState()
-		observedPlayer = null
-	},
-	true
-)
-document.addEventListener(
-	'yt-navigate-finish',
-	() => {
-		observePlayer()
-		scheduleRun()
-	},
-	true
-)
-window.setInterval(run, FALLBACK_CHECK_INTERVAL_MS)
-observePlayer()
-scheduleRun()
+        const observer = new MutationObserver(() => {
+                observePlayer()
+                scheduleRun()
+        })
+        observer.observe(document.documentElement, { childList: true, subtree: true })
+
+        document.addEventListener('timeupdate', scheduleRun, true)
+        document.addEventListener(
+            'yt-navigate-start',
+            () => {
+                    resetAdState()
+                    observedPlayer = null
+            },
+            true
+        )
+        document.addEventListener(
+            'yt-navigate-finish',
+            () => {
+                    observePlayer()
+                    scheduleRun()
+            },
+            true
+        )
+        window.setInterval(run, FALLBACK_CHECK_INTERVAL_MS)
+        log('Started', {
+                version: root.getAttribute(runtimeMarker),
+                host: location.hostname,
+                minAdPlayTimeMs: MIN_AD_PLAY_TIME_MS
+        })
+        observePlayer()
+        scheduleRun()
+})()
