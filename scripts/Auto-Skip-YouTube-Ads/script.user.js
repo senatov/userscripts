@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Auto Skip YouTube Ads (Improved)
 // @namespace    https://github.com/tientq64/userscripts
-// @version      8.3.0
-// @description  Lets video ads play briefly, then uses YouTube's native skip button.
+// @version      8.4.0
+// @description  Lets video ads start, then reveals and presses YouTube's native skip button.
 // @author       tientq64
 // @match        https://www.youtube.com/*
 // @match        https://m.youtube.com/*
@@ -22,11 +22,12 @@
         console.debug('[AutoSkipAds]', 'Ignored duplicate Safari injection')
         return
     }
-    root.setAttribute(runtimeMarker, '8.3.0')
+    root.setAttribute(runtimeMarker, '8.4.0')
 
     const DEBUG = true
     const MIN_AD_PLAY_TIME_MS = 2000
-    const FALLBACK_CHECK_INTERVAL_MS = 2000
+    const SKIP_RETRY_INTERVAL_MS = 250
+    const FALLBACK_CHECK_INTERVAL_MS = 250
     const adMarkers = [
         '.ad-showing',
         '.ytp-ad-player-overlay',
@@ -61,29 +62,25 @@
         return adMarkers.some((selector) => document.querySelector(selector) !== null)
     }
 
-    function isElementVisible(element) {
-        const style = getComputedStyle(element)
-        return (
-            element.isConnected &&
-            element.getClientRects().length > 0 &&
-            style.display !== 'none' &&
-            style.visibility !== 'hidden'
-        )
-    }
-
     function clickSkipButton() {
         const button = document.querySelector(skipButtonSelectors.join(','))
-        if (
-            button === null ||
-            !isElementVisible(button) ||
-            button.getAttribute('aria-disabled') === 'true' ||
-            (button instanceof HTMLButtonElement && button.disabled)
-        ) {
-            return false
-        }
+        if (button === null || !button.isConnected) return false
+
+        // YouTube often creates its native skip control before making it visible.
+        // After the grace period, expose that existing control and invoke its own
+        // click handler. If the player still considers the ad unskippable, the
+        // click is harmless and will be retried instead of touching video time.
+        button.hidden = false
+        button.removeAttribute('hidden')
+        button.removeAttribute('aria-disabled')
+        if (button instanceof HTMLButtonElement) button.disabled = false
+        button.style.setProperty('display', '', 'important')
+        button.style.setProperty('visibility', 'visible', 'important')
+        button.style.setProperty('opacity', '1', 'important')
+        button.style.setProperty('pointer-events', 'auto', 'important')
 
         button.click()
-        log('Clicked the skip button')
+        log('Pressed the native skip button')
         return true
     }
 
@@ -117,7 +114,7 @@
                 source,
                 lastVideoTime: currentTime,
                 playedTimeMs: 0,
-                skipClicked: false
+                lastSkipAttemptMs: 0
             }
             log('Ad playback detected')
         }
@@ -128,8 +125,10 @@
         adState.lastVideoTime = currentTime
 
         const playedLongEnough = adState.playedTimeMs >= MIN_AD_PLAY_TIME_MS
-        if (playedLongEnough && !adState.skipClicked && clickSkipButton()) {
-            adState.skipClicked = true
+        const now = performance.now()
+        if (playedLongEnough && now - adState.lastSkipAttemptMs >= SKIP_RETRY_INTERVAL_MS) {
+            adState.lastSkipAttemptMs = now
+            clickSkipButton()
         }
     }
 
