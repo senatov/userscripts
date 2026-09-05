@@ -9,6 +9,11 @@ Tự động bỏ qua quảng cáo YouTube ngay lập tức. Không bị phát h
 
 ## 📑 Changelog
 
+### 8.5.1 - 2026-09-05
+
+-   Press the native Skip button after about 1.75 seconds of actual ad playback, retrying
+    every 250 ms when YouTube has not made the action effective yet.
+
 ### 8.5.0 - 2026-09-05
 
 -   Ignore stale, hidden ad elements that YouTube keeps in the player between ads.

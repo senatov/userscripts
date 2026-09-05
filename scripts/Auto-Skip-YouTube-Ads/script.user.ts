@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Auto Skip YouTube Ads (Improved)
 // @namespace    https://github.com/tientq64/userscripts
-// @version      8.5.0
+// @version      8.5.1
 // @description  Lets video ads start, then reveals and presses YouTube's native skip button.
 // @author       tientq64
 // @match        https://www.youtube.com/*
@@ -21,7 +21,7 @@
                 console.debug('[AutoSkipAds]', 'Ignored duplicate Safari injection')
                 return
         }
-        root.setAttribute(runtimeMarker, '8.5.0')
+        root.setAttribute(runtimeMarker, '8.5.1')
 
         interface AdState {
                 video: HTMLVideoElement
@@ -33,7 +33,7 @@
         }
 
         const DEBUG = true
-        const MIN_AD_PLAY_TIME_MS = 2000
+        const MIN_AD_PLAY_TIME_MS = 1750
         const SKIP_RETRY_INTERVAL_MS = 250
         const FALLBACK_CHECK_INTERVAL_MS = 250
         const adMarkers: string[] = [
