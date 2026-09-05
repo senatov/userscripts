@@ -1,12 +1,21 @@
 ## 📰 Introduction
 
-Automatically skip YouTube ads instantly. Undetected by YouTube ad blocker warnings.
+Lets a YouTube video ad play briefly, then presses the native Skip button. The script does
+not seek through ads, mute the player, or hide YouTube's player UI.
 
 立即自动跳过 YouTube 广告。不会被 YouTube 广告拦截器警告检测到。
 
 Tự động bỏ qua quảng cáo YouTube ngay lập tức. Không bị phát hiện bởi cảnh báo trình chặn quảng cáo của YouTube.
 
 ## 📑 Changelog
+
+### 8.5.0 - 2026-09-05
+
+-   Ignore stale, hidden ad elements that YouTube keeps in the player between ads.
+-   Scope ad and Skip-button detection to the active player, preventing unrelated page
+    controls from being treated as ad controls.
+-   Keep Safari's page/content fallback injection harmless and avoid repeated success logs
+    while a native Skip click is being retried.
 
 ### 7.3.0 - 2025-06-20
 

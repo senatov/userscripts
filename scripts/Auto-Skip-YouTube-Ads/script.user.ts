@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Auto Skip YouTube Ads (Improved)
 // @namespace    https://github.com/tientq64/userscripts
-// @version      8.4.0
+// @version      8.5.0
 // @description  Lets video ads start, then reveals and presses YouTube's native skip button.
 // @author       tientq64
 // @match        https://www.youtube.com/*
@@ -21,7 +21,7 @@
                 console.debug('[AutoSkipAds]', 'Ignored duplicate Safari injection')
                 return
         }
-        root.setAttribute(runtimeMarker, '8.4.0')
+        root.setAttribute(runtimeMarker, '8.5.0')
 
         interface AdState {
                 video: HTMLVideoElement
@@ -29,6 +29,7 @@
                 lastVideoTime: number
                 playedTimeMs: number
                 lastSkipAttemptMs: number
+                skipAttemptCount: number
         }
 
         const DEBUG = true
@@ -65,13 +66,32 @@
                 return location.pathname.startsWith('/shorts/')
         }
 
-        function hasVideoAd(): boolean {
-                return adMarkers.some((selector) => document.querySelector(selector) !== null)
+        function isRendered(element: HTMLElement): boolean {
+                if (element.hidden || element.getAttribute('aria-hidden') === 'true') return false
+
+                const style = getComputedStyle(element)
+                return (
+                    style.display !== 'none' &&
+                    style.visibility !== 'hidden' &&
+                    element.getClientRects().length > 0
+                )
         }
 
-        function clickSkipButton(): boolean {
-                const button = document.querySelector<HTMLElement>(skipButtonSelectors.join(','))
-                if (button === null || !button.isConnected) return false
+        function hasVideoAd(player: Element): boolean {
+                if (player.classList.contains('ad-showing')) return true
+
+                // YouTube keeps some ad nodes mounted between ads. Only rendered markers
+                // inside the active player count, otherwise normal videos can inherit a
+                // stale ad state and have unrelated controls clicked.
+                return adMarkers.some((selector) =>
+                        Array.from(player.querySelectorAll<HTMLElement>(selector)).some(isRendered)
+                )
+        }
+
+        function clickSkipButton(player: Element): boolean {
+                const buttons = player.querySelectorAll<HTMLElement>(skipButtonSelectors.join(','))
+                const button = Array.from(buttons).find((candidate) => candidate.isConnected)
+                if (button === undefined) return false
 
                 // YouTube often creates its native skip control before making it visible.
                 // After the grace period, expose that existing control and invoke its own
@@ -87,7 +107,6 @@
                 button.style.setProperty('pointer-events', 'auto', 'important')
 
                 button.click()
-                log('Pressed the native skip button')
                 return true
         }
 
@@ -96,7 +115,8 @@
         }
 
         function playAndSkipAd(): void {
-                if (isYouTubeShorts() || !hasVideoAd()) {
+                const player = document.querySelector('#movie_player')
+                if (isYouTubeShorts() || player === null || !hasVideoAd(player)) {
                         resetAdState()
                         return
                 }
@@ -121,7 +141,8 @@
                                 source,
                                 lastVideoTime: currentTime,
                                 playedTimeMs: 0,
-                                lastSkipAttemptMs: 0
+                                lastSkipAttemptMs: 0,
+                                skipAttemptCount: 0
                         }
                         log('Ad playback detected')
                 }
@@ -138,7 +159,12 @@
                     now - adState.lastSkipAttemptMs >= SKIP_RETRY_INTERVAL_MS
                 ) {
                         adState.lastSkipAttemptMs = now
-                        clickSkipButton()
+                        if (clickSkipButton(player)) {
+                                adState.skipAttemptCount += 1
+                                if (adState.skipAttemptCount === 1) {
+                                        log('Pressed the native skip button')
+                                }
+                        }
                 }
         }
 
